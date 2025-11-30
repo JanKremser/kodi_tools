@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Kodi Custom Special Episodes Generator
-Erstellt NFO-Dateien und Thumbnails für manuell verwaltete Special-Folgen (E10000+)
+Erstellt NFO-Dateien und Thumbnails für manuell verwaltete Special-Folgen (E1000+)
 """
 
 import os
@@ -43,18 +43,19 @@ class CustomSpecialGenerator:
             'blooper': 'BLOOPERS',
             'featurette': 'FEATURETTE',
             'preview': 'PREVIEW',
-            'special': 'SPECIAL'
+            'special': 'SPECIAL',
+            'recap': 'RECAP'
         }
 
     def find_video_files(self) -> List[Path]:
-        """Findet rekursiv alle Video-Dateien für Special-Folgen >= E10000"""
+        """Findet rekursiv alle Video-Dateien für Special-Folgen >= E1000"""
         video_files = []
         for root, dirs, files in os.walk(self.base_path):
             for file in files:
                 file_path = Path(root) / file
                 if file_path.suffix.lower() in self.video_extensions:
                     ep_info = self.parse_episode_info(file_path.stem)
-                    if ep_info and ep_info[0] == 0 and ep_info[1] >= 10000:
+                    if ep_info and ep_info[0] == 0 and ep_info[1] >= 1000:
                         video_files.append(file_path)
         return video_files
 
@@ -62,14 +63,25 @@ class CustomSpecialGenerator:
         """
         Extrahiert Season, Episode und Titel aus Dateinamen
         Unterstützte Formate:
-        - "Serienname - S00E10000 - Episode Titel"
-        - "S00E10000 - Episode Titel" (ohne Serienname)
-        - "Serie-mit-Bindestrichen - S00E10000 - Episode Titel"
+        - "Serienname - S00E1000 - Episode Titel"
+        - "S00E1000 - Episode Titel" (ohne Serienname)
+        - "Serie-mit-Bindestrichen - S00E1000 - Episode Titel"
         Returns: (season, episode, title) oder None
         """
-        # Pattern 1: Mit Episode-Titel nach S00E10000
-        # Suche nach S00E10000, dann optional " - " und danach der Titel
-        match = re.search(r'[Ss](\d+)[Ee](\d+)(?:\s*-\s*(.+))?')
+        # Pattern: Suche nach S00E1000, dann optional " - " und danach der Titel
+        match = re.search(r'[Ss](\d+)[Ee](\d+)(?:\s*-\s*(.+))?$', filename)
+        if match:
+            season = int(match.group(1))
+            episode = int(match.group(2))
+            # Titel ist optional
+            title_match = match.group(3)
+            if title_match and title_match.strip():
+                title = title_match.strip()
+            else:
+                title = f"Episode {episode}"
+            return (season, episode, title)
+
+        return None
 
     def get_json_path(self, video_path: Path) -> Path:
         """Gibt den Pfad zur JSON-Metadaten-Datei zurück"""
@@ -81,7 +93,9 @@ class CustomSpecialGenerator:
 
     def get_thumb_path(self, video_path: Path) -> Path:
         """Gibt den Pfad zum Thumbnail zurück"""
-        return video_path.with_suffix('') / Path(video_path.stem + '-thumb.jpg')
+        parent = video_path.parent
+        stem = video_path.stem
+        return parent / f"{stem}-thumb.jpg"
 
     def load_json_metadata(self, json_path: Path) -> Optional[Dict]:
         """Lädt gespeicherte Metadaten aus JSON"""
@@ -105,7 +119,7 @@ class CustomSpecialGenerator:
         except Exception as e:
             print(f"⚠️  Fehler beim Speichern von {json_path}: {e}")
 
-    def create_nfo(self, nfo_path: Path, season: int, episode: int, title: str, metadata: Dict | None = None):
+    def create_nfo(self, nfo_path: Path, season: int, episode: int, title: str, metadata: Optional[Dict] = None):
         """Erstellt eine NFO-Datei für die Episode"""
         if self.dry_run:
             print(f"   [DRY-RUN] Würde NFO erstellen: {nfo_path}")
@@ -148,6 +162,32 @@ class CustomSpecialGenerator:
             print(f"   ✓ NFO erstellt: {nfo_path.name}")
         except Exception as e:
             print(f"   ⚠️  Fehler beim Erstellen der NFO: {e}")
+
+    def get_video_duration(self, video_path: Path) -> Optional[float]:
+        """Ermittelt die Dauer des Videos in Sekunden"""
+        cmd = [
+            'ffprobe',
+            '-v', 'error',
+            '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
+            str(video_path)
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=10
+            )
+
+            if result.returncode == 0:
+                duration = float(result.stdout.decode().strip())
+                return duration
+        except:
+            pass
+
+        return None
 
     def detect_label(self, title: str) -> Optional[str]:
         """Erkennt ob der Titel ein Label-Keyword enthält"""
@@ -236,7 +276,7 @@ class CustomSpecialGenerator:
             print(f"   ⚠️  Fehler beim Hinzufügen des Labels: {e}")
             return False
 
-    def create_thumbnail(self, video_path: Path, thumb_path: Path, timestamp: Optional[str] = None):
+    def create_thumbnail(self, video_path: Path, thumb_path: Path, timestamp: Optional[str] = None) -> bool:
         """Erstellt ein Thumbnail mit ffmpeg aus der Mitte des Videos"""
         if self.dry_run:
             print(f"   [DRY-RUN] Würde Thumbnail erstellen: {thumb_path}")
@@ -356,6 +396,7 @@ class CustomSpecialGenerator:
             print(f"   ✓ NFO existiert bereits: {nfo_path.name}")
 
         # Erstelle Thumbnail
+        timestamp = None
         if needs_thumb:
             # Verwende Timestamp aus JSON falls vorhanden, sonst automatisch Mitte
             if json_data and json_data.get('thumbnail_timestamp'):
@@ -395,7 +436,7 @@ class CustomSpecialGenerator:
             'episode': episode,
             'title': title,
             'metadata': metadata,
-            'thumbnail_timestamp': timestamp if timestamp else json_data.get('thumbnail_timestamp') if json_data else None,
+            'thumbnail_timestamp': timestamp,
             'nfo_created': nfo_path.exists(),
             'thumb_created': thumb_path.exists(),
             'last_processed': datetime.now().isoformat()
@@ -406,7 +447,7 @@ class CustomSpecialGenerator:
 
     def process_all(self):
         """Hauptfunktion: Verarbeitet alle Video-Dateien"""
-        print(f"🔍 Suche Custom Special Episodes (>= E10000) in: {self.base_path}\n")
+        print(f"🔍 Suche Custom Special Episodes (>= E1000) in: {self.base_path}\n")
 
         # Zeige Modus an
         if self.force_nfo and self.force_thumb:
@@ -452,37 +493,11 @@ class CustomSpecialGenerator:
         print(f"✅ Fertig! {len(self.processed_files)} Datei(en) verarbeitet")
 
 
-    def get_video_duration(self, video_path: Path) -> Optional[float]:
-        """Ermittelt die Dauer des Videos in Sekunden"""
-        cmd = [
-            'ffprobe',
-            '-v', 'error',
-            '-show_entries', 'format=duration',
-            '-of', 'default=noprint_wrappers=1:nokey=1',
-            str(video_path)
-        ]
-
-        try:
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=10
-            )
-
-            if result.returncode == 0:
-                duration = float(result.stdout.decode().strip())
-                return duration
-        except:
-            pass
-
-        return None
-
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description='Kodi Custom Special Episodes Generator - Erstellt NFO und Thumbnails für E10000+ Episoden',
+        description='Kodi Custom Special Episodes Generator - Erstellt NFO und Thumbnails für E1000+ Episoden',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Beispiele:
@@ -502,10 +517,10 @@ Beispiele:
   python %(prog)s /pfad/zu/serien --dry-run
 
 Dateiformat:
-  Video: "Serienname - S00E10001 - Episode Titel.mkv"
-  NFO:   "Serienname - S00E10001 - Episode Titel.nfo"
-  Thumb: "Serienname - S00E10001 - Episode Titel-thumb.jpg"
-  JSON:  "Serienname - S00E10001 - Episode Titel.json"
+  Video: "Serienname - S00E1001 - Episode Titel.mkv"
+  NFO:   "Serienname - S00E1001 - Episode Titel.nfo"
+  Thumb: "Serienname - S00E1001 - Episode Titel-thumb.jpg"
+  JSON:  "Serienname - S00E1001 - Episode Titel.json"
         """
     )
 
@@ -519,6 +534,8 @@ Dateiformat:
     force_group.add_argument('--force-all', action='store_true',
                             help='Alles neu generieren (NFO + Thumbnails)')
 
+    parser.add_argument('--no-labels', action='store_true',
+                       help='Keine Labels auf Thumbnails (Trailer, Interview, etc.)')
     parser.add_argument('--dry-run', action='store_true',
                        help='Testlauf ohne Änderungen')
 
@@ -531,11 +548,13 @@ Dateiformat:
     # Bestimme welche Flags gesetzt werden
     force_nfo = args.force_nfo or args.force_all
     force_thumb = args.force_thumb or args.force_all
+    add_labels = not args.no_labels
 
     generator = CustomSpecialGenerator(
         args.path,
         force_nfo=force_nfo,
         force_thumb=force_thumb,
+        add_labels=add_labels,
         dry_run=args.dry_run
     )
 
