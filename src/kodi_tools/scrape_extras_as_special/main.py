@@ -192,25 +192,35 @@ class CustomSpecialGenerator:
 
         return None
 
-    def detect_label(self, title: str) -> Optional[str]:
-        """Erkennt ob der Titel ein Label-Keyword enthält und extrahiert ggf. Staffel/Season-Nummer"""
+    def detect_label(self, title: str) -> Optional[Tuple[Optional[str], str]]:
+        """Erkennt ob der Titel ein Label-Keyword enthält und extrahiert ggf. Staffel/Season-Nummer und #Nummer"""
         title_lower = title.lower()
-        prefix = ""
-        # Suche nach Staffel/Season und Nummer dahinter
+        season_prefix = ""
+        # Staffel/Season-Nummer extrahieren
         match = re.search(r'(staffel|season)\s*0*(\d+)', title_lower)
         if match:
             #typ = match.group(1).capitalize()
             nummer = int(match.group(2))
-            prefix = f"S{nummer:02d}"
+            season_prefix = f"S{nummer:02d}"
+
+        # #Nummer extrahieren (z.B. #1, #05)
+        number_suffix = ""
+        num_match = re.search(r'#\s*0*(\d+)', title_lower)
+        if num_match:
+            num = int(num_match.group(1))
+            number_suffix = f" #{num:02d}"
+
         for keyword, label in self.label_keywords.items():
             if keyword in title_lower:
-                return f"{prefix}: {label}"
+                return season_prefix, f"{label}{number_suffix}"
 
-        if prefix:
-            return f"{prefix}: SPECIAL"
+        if season_prefix:
+            return season_prefix, f"SPECIAL {number_suffix}"
+        elif number_suffix:
+            return None, f"SPECIAL {number_suffix}"
         return None
 
-    def add_label_to_thumbnail(self, thumb_path: Path, label: str) -> bool:
+    def add_label_to_thumbnail(self, thumb_path: Path, label: str, season: Optional[str]) -> bool:
         """Fügt ein Label mit abgerundeten Ecken zum Thumbnail hinzu"""
         if not PILLOW_AVAILABLE:
             print(f"   ⚠️  Pillow nicht installiert, Label wird übersprungen")
@@ -279,6 +289,35 @@ class CustomSpecialGenerator:
             text_x = box_x + padding
             text_y = box_y + (padding * 0.75)
             draw.text((text_x, text_y), label, font=font, fill=(255, 255, 255, 255))
+
+            if season:
+                season_bbox = draw.textbbox((0, 0), season, font=font)
+                season_text_width = season_bbox[2] - season_bbox[0]
+                season_text_height = season_bbox[3] - season_bbox[1]
+
+                season_box_x = img.width - season_text_width - (2 * padding) - margin
+                season_box_y = margin
+                season_box_width = season_text_width + (2 * padding)
+                season_box_height = season_text_height + (2 * padding)
+
+                # Erstelle abgerundetes Rechteck mit transparentem schwarzen Hintergrund
+                season_overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
+                season_overlay_draw = ImageDraw.Draw(season_overlay)
+
+                # Zeichne abgerundetes Rechteck
+                season_overlay_draw.rounded_rectangle(
+                    [season_box_x, season_box_y, season_box_x + season_box_width, season_box_y + season_box_height],
+                    radius=border_radius,
+                    fill=(0, 0, 0, 200)
+                )
+
+                # Kombiniere Overlay mit Original
+                img = Image.alpha_composite(img.convert('RGBA'), season_overlay)
+                draw = ImageDraw.Draw(img)
+
+                season_text_x = img.width - season_text_width - (padding) - margin
+                season_text_y = margin + (padding * 0.75)
+                draw.text((season_text_x, season_text_y), season, font=font, fill=(255, 255, 255, 255))
 
             # Speichere
             img = img.convert('RGB')  # Zurück zu RGB für JPEG
@@ -426,7 +465,8 @@ class CustomSpecialGenerator:
             if success and self.add_labels:
                 label = self.detect_label(title)
                 if label:
-                    self.add_label_to_thumbnail(thumb_path, label)
+                    session_title, label_title = label
+                    self.add_label_to_thumbnail(thumb_path, label_title, session_title)
 
             # Speichere verwendeten Timestamp für nächstes Mal
             if success and timestamp is None:
