@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kodi_tools"
+version = "0.4.0"
+description = "Tools zur Verwaltung und Korrektur von Kodi-Mediatheken"
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [{ name = "Jan Kremser", email = "git@nerdbrief.de" }]
+
+[project.urls]
+Homepage = "https://github.com/jankremser/kodi_tools"
+Repository = "https://github.com/jankremser/kodi_tools"
+Issues = "https://github.com/jankremser/kodi_tools/issues"
+
+[project.scripts]
+kodi_tools = "kodi_tools.main:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
