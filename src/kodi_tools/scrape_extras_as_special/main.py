@@ -213,9 +213,11 @@ class CustomSpecialGenerator:
             img = Image.open(thumb_path)
             draw = ImageDraw.Draw(img, 'RGBA')
 
-            # Versuche verschiedene Schriftgrößen
+            # Berechne Schriftgröße relativ zur Bildhöhe (ca. 10% der Höhe)
+            font_size = int(img.height * 0.10)
+
+            # Versuche Schrift zu laden
             font = None
-            font_size = 48
             try:
                 # Versuche System-Schrift zu laden
                 font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
@@ -234,10 +236,10 @@ class CustomSpecialGenerator:
             text_width = bbox[2] - bbox[0]
             text_height = bbox[3] - bbox[1]
 
-            # Position und Größe des Labels (unten links)
-            padding = 20
-            margin = 30
-            border_radius = 15
+            # Position und Größe des Labels (unten links) - relativ zur Bildgröße
+            padding = int(img.height * 0.05)  # 5% padding
+            margin = int(img.height * 0.04)    # 4% margin
+            border_radius = int(img.height * 0.04)  # 2% border radius
 
             # Box-Koordinaten
             box_x = margin
@@ -262,7 +264,7 @@ class CustomSpecialGenerator:
 
             # Zeichne Text
             text_x = box_x + padding
-            text_y = box_y + padding
+            text_y = box_y + (padding * 0.75)
             draw.text((text_x, text_y), label, font=font, fill=(255, 255, 255, 255))
 
             # Speichere
