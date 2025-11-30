@@ -44,7 +44,10 @@ class CustomSpecialGenerator:
             'featurette': 'FEATURETTE',
             'preview': 'PREVIEW',
             'special': 'SPECIAL',
-            'recap': 'RECAP'
+            'recap': 'RECAP',
+            'inside the episode': 'INSIDE THE EPISODE',
+            'insides': 'INSIDES',
+            'inside': 'INSIDE',
         }
 
     def find_video_files(self) -> List[Path]:
@@ -196,9 +199,9 @@ class CustomSpecialGenerator:
         # Suche nach Staffel/Season und Nummer dahinter
         match = re.search(r'(staffel|season)\s*0*(\d+)', title_lower)
         if match:
-            typ = match.group(1).capitalize()
+            #typ = match.group(1).capitalize()
             nummer = int(match.group(2))
-            prefix = f"{typ} {nummer}"
+            prefix = f"S{nummer:02d}"
         for keyword, label in self.label_keywords.items():
             if keyword in title_lower:
                 return f"{prefix}: {label}"
