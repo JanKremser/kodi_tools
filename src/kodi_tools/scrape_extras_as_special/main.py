@@ -190,11 +190,21 @@ class CustomSpecialGenerator:
         return None
 
     def detect_label(self, title: str) -> Optional[str]:
-        """Erkennt ob der Titel ein Label-Keyword enthält"""
+        """Erkennt ob der Titel ein Label-Keyword enthält und extrahiert ggf. Staffel/Season-Nummer"""
         title_lower = title.lower()
+        prefix = ""
+        # Suche nach Staffel/Season und Nummer dahinter
+        match = re.search(r'(staffel|season)\s*0*(\d+)', title_lower)
+        if match:
+            typ = match.group(1).capitalize()
+            nummer = int(match.group(2))
+            prefix = f"{typ} {nummer}"
         for keyword, label in self.label_keywords.items():
             if keyword in title_lower:
-                return label
+                return f"{prefix}: {label}"
+
+        if prefix:
+            return f"{prefix}: SPECIAL"
         return None
 
     def add_label_to_thumbnail(self, thumb_path: Path, label: str) -> bool:
