@@ -203,6 +203,13 @@ class CustomSpecialGenerator:
             nummer = int(match.group(2))
             season_prefix = f"S{nummer:02d}"
 
+        # Episode-Nummer extrahieren
+        match = re.search(r'(episode)\s*0*(\d+)', title_lower)
+        if match:
+            #typ = match.group(1).capitalize()
+            nummer = int(match.group(2))
+            season_prefix = f"{season_prefix}E{nummer:02d}"
+
         # #Nummer extrahieren (z.B. #1, #05)
         number_suffix = ""
         num_match = re.search(r'#\s*0*(\d+)', title_lower)
