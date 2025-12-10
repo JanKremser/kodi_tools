@@ -7,6 +7,7 @@ Erstellt NFO-Dateien und Thumbnails für manuell verwaltete Special-Folgen (E100
 import os
 import json
 import subprocess
+import shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime
@@ -85,6 +86,68 @@ class CustomSpecialGenerator:
             return (season, episode, title)
 
         return None
+
+    def get_episode_folder_name(self, season: int, episode: int, title: str) -> str:
+        """Erstellt den Ordnernamen ohne Serienname: 'S00E1001 - Episode Titel'"""
+        return f"S{season:02d}E{episode:04d} - {title}"
+
+    def organize_into_folder(self, video_path: Path) -> Optional[Path]:
+        """
+        Erstellt Episoden-Ordner und verschiebt die Video-Datei hinein.
+        Returns: Neuer Pfad der Video-Datei oder None bei Fehler
+        """
+        # Parse Episode Info
+        ep_info = self.parse_episode_info(video_path.stem)
+        if not ep_info:
+            print(f"   ⚠️  Konnte Episode-Info nicht parsen")
+            return None
+
+        season, episode, title = ep_info
+
+        # Erstelle Ordnernamen (ohne Serienname)
+        folder_name = self.get_episode_folder_name(season, episode, title)
+        episode_folder = video_path.parent / folder_name
+
+        # Prüfe ob Datei bereits im richtigen Ordner ist
+        if video_path.parent.name == folder_name:
+            print(f"   ✓ Bereits im korrekten Ordner: {folder_name}")
+            return video_path
+
+        # Erstelle Ordner falls er nicht existiert
+        if not episode_folder.exists():
+            if self.dry_run:
+                print(f"   [DRY-RUN] Würde Ordner erstellen: {folder_name}")
+            else:
+                try:
+                    episode_folder.mkdir(parents=True, exist_ok=True)
+                    print(f"   ✓ Ordner erstellt: {folder_name}")
+                except Exception as e:
+                    print(f"   ⚠️  Fehler beim Erstellen des Ordners: {e}")
+                    return None
+        else:
+            print(f"   ✓ Ordner existiert bereits: {folder_name}")
+
+        # Neuer Pfad für die Video-Datei
+        new_video_path = episode_folder / video_path.name
+
+        # Prüfe ob Datei bereits am Zielort existiert
+        if new_video_path.exists() and new_video_path != video_path:
+            print(f"   ⚠️  Datei existiert bereits im Zielordner: {video_path.name}")
+            return None
+
+        # Verschiebe Video-Datei
+        if video_path != new_video_path:
+            if self.dry_run:
+                print(f"   [DRY-RUN] Würde verschieben: {video_path.name} -> {folder_name}/")
+            else:
+                try:
+                    shutil.move(str(video_path), str(new_video_path))
+                    print(f"   ✓ Verschoben: {video_path.name} -> {folder_name}/")
+                except Exception as e:
+                    print(f"   ⚠️  Fehler beim Verschieben: {e}")
+                    return None
+
+        return new_video_path
 
     def get_json_path(self, video_path: Path) -> Path:
         """Gibt den Pfad zur JSON-Metadaten-Datei zurück"""
@@ -199,16 +262,14 @@ class CustomSpecialGenerator:
         # Staffel/Season-Nummer extrahieren
         match = re.search(r'(staffel|season)\s*0*(\d+)', title_lower)
         if match:
-            #typ = match.group(1).capitalize()
             nummer = int(match.group(2))
             season_prefix = f"S{nummer:02d}"
 
         # Episode-Nummer extrahieren
         match = re.search(r'(episode)\s*0*(\d+)', title_lower)
         if match:
-            #typ = match.group(1).capitalize()
             nummer = int(match.group(2))
-            season_prefix = f"{season_prefix}E{nummer:02d}"
+            season_prefix = f"{season_prefix}-E{nummer:02d}"
 
         # #Nummer extrahieren (z.B. #1, #05)
         number_suffix = ""
@@ -220,6 +281,11 @@ class CustomSpecialGenerator:
         for keyword, label in self.label_keywords.items():
             if keyword in title_lower:
                 return season_prefix, f"{label}{number_suffix}"
+
+        match = re.search(r"''(.*?)''", title)
+        if match:
+            new_label = match.group(1)
+            return season_prefix, f"{new_label} {number_suffix}"
 
         if season_prefix:
             return season_prefix, f"SPECIAL {number_suffix}"
@@ -244,7 +310,7 @@ class CustomSpecialGenerator:
             draw = ImageDraw.Draw(img, 'RGBA')
 
             # Berechne Schriftgröße relativ zur Bildhöhe (ca. 10% der Höhe)
-            font_size = int(img.height * 0.10)
+            font_size = int(img.height * 0.06)
 
             # Versuche Schrift zu laden
             font = None
@@ -267,9 +333,9 @@ class CustomSpecialGenerator:
             text_height = bbox[3] - bbox[1]
 
             # Position und Größe des Labels (unten links) - relativ zur Bildgröße
-            padding = int(img.height * 0.05)  # 5% padding
+            padding = int(img.height * 0.02)  # 5% padding
             margin = int(img.height * 0.04)    # 4% margin
-            border_radius = int(img.height * 0.04)  # 2% border radius
+            border_radius = int(img.height * 0.02)  # 4% border radius
 
             # Box-Koordinaten
             box_x = margin
@@ -285,7 +351,7 @@ class CustomSpecialGenerator:
             overlay_draw.rounded_rectangle(
                 [box_x, box_y, box_x + box_width, box_y + box_height],
                 radius=border_radius,
-                fill=(0, 0, 0, 200)  # Schwarz mit 78% Deckkraft
+                fill=(0, 0, 0, 175)  # Schwarz mit Transparenz
             )
 
             # Kombiniere Overlay mit Original
@@ -294,7 +360,7 @@ class CustomSpecialGenerator:
 
             # Zeichne Text
             text_x = box_x + padding
-            text_y = box_y + (padding * 0.75)
+            text_y = box_y + (padding * 0.5)
             draw.text((text_x, text_y), label, font=font, fill=(255, 255, 255, 255))
 
             if season:
@@ -315,7 +381,7 @@ class CustomSpecialGenerator:
                 season_overlay_draw.rounded_rectangle(
                     [season_box_x, season_box_y, season_box_x + season_box_width, season_box_y + season_box_height],
                     radius=border_radius,
-                    fill=(0, 0, 0, 200)
+                    fill=(0, 0, 0, 175)  # Schwarz mit Transparenz
                 )
 
                 # Kombiniere Overlay mit Original
@@ -323,7 +389,7 @@ class CustomSpecialGenerator:
                 draw = ImageDraw.Draw(img)
 
                 season_text_x = img.width - season_text_width - (padding) - margin
-                season_text_y = margin + (padding * 0.75)
+                season_text_y = margin + (padding * 0.5)
                 draw.text((season_text_x, season_text_y), season, font=font, fill=(255, 255, 255, 255))
 
             # Speichere
@@ -417,6 +483,15 @@ class CustomSpecialGenerator:
         """Verarbeitet eine einzelne Video-Datei"""
         print(f"\n📹 {video_path.name}")
 
+        # SCHRITT 1: Organisiere in Ordner (zuerst!)
+        new_video_path = self.organize_into_folder(video_path)
+        if new_video_path is None:
+            print(f"   ⚠️  Überspringe Datei wegen Fehler bei Ordner-Organisation")
+            return
+
+        # Ab jetzt mit dem neuen Pfad arbeiten
+        video_path = new_video_path
+
         # Parse Episode Info
         ep_info = self.parse_episode_info(video_path.stem)
         if not ep_info:
@@ -427,7 +502,7 @@ class CustomSpecialGenerator:
         print(f"   Season: {season}, Episode: {episode}")
         print(f"   Titel: {title}")
 
-        # Pfade
+        # Pfade (jetzt im neuen Ordner)
         json_path = self.get_json_path(video_path)
         nfo_path = self.get_nfo_path(video_path)
         thumb_path = self.get_thumb_path(video_path)
@@ -526,6 +601,7 @@ class CustomSpecialGenerator:
         else:
             print("🏷️  Labels: Deaktiviert")
 
+        print("📁 Ordner-Organisation: Aktiviert")
         print()
 
         # Prüfe ffmpeg
@@ -578,11 +654,12 @@ Beispiele:
   # Testlauf
   python %(prog)s /pfad/zu/serien --dry-run
 
-Dateiformat:
-  Video: "Serienname - S00E1001 - Episode Titel.mkv"
-  NFO:   "Serienname - S00E1001 - Episode Titel.nfo"
-  Thumb: "Serienname - S00E1001 - Episode Titel-thumb.jpg"
-  JSON:  "Serienname - S00E1001 - Episode Titel.json"
+Dateiformat & Ordnerstruktur:
+  Vorher:  "Serienname - S00E1001 - Episode Titel.mkv"
+  Nachher: "S00E1001 - Episode Titel/Serienname - S00E1001 - Episode Titel.mkv"
+           "S00E1001 - Episode Titel/Serienname - S00E1001 - Episode Titel.nfo"
+           "S00E1001 - Episode Titel/Serienname - S00E1001 - Episode Titel-thumb.jpg"
+           "S00E1001 - Episode Titel/Serienname - S00E1001 - Episode Titel.json"
         """
     )
 
