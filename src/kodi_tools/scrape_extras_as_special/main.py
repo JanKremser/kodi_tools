@@ -195,7 +195,7 @@ class CustomSpecialGenerator:
         root = ET.Element('episodedetails')
 
         # Pflichtfelder aus Dateiname
-        ET.SubElement(root, 'title').text = title
+        ET.SubElement(root, 'title').text = title.replace("''", "")
         ET.SubElement(root, 'season').text = str(season)
         ET.SubElement(root, 'episode').text = str(episode)
 
@@ -255,6 +255,38 @@ class CustomSpecialGenerator:
 
         return None
 
+    def get_video_dimensions(self, video_path: Path) -> Optional[Tuple[int, int]]:
+        """Ermittelt die Auflösung des Videos (Breite x Höhe)"""
+        cmd = [
+            'ffprobe',
+            '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=width,height',
+            '-of', 'csv=s=x:p=0',
+            str(video_path)
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=10
+            )
+
+            if result.returncode == 0:
+                output = result.stdout.decode().strip()
+                # Output format: "widthxheight" or "widthxheightx" (mit trailing x)
+                # Entferne leere Strings nach dem Split
+                parts = [p for p in output.split('x') if p]
+                if len(parts) >= 2:
+                    width, height = int(parts[0]), int(parts[1])
+                    return (width, height)
+        except:
+            pass
+
+        return None
+
     def detect_label(self, title: str) -> Optional[Tuple[Optional[str], str]]:
         """Erkennt ob der Titel ein Label-Keyword enthält und extrahiert ggf. Staffel/Season-Nummer und #Nummer"""
         title_lower = title.lower()
@@ -269,7 +301,10 @@ class CustomSpecialGenerator:
         match = re.search(r'(episode)\s*0*(\d+)', title_lower)
         if match:
             nummer = int(match.group(2))
-            season_prefix = f"{season_prefix}-E{nummer:02d}"
+            if season_prefix:
+                season_prefix = f"{season_prefix}-E{nummer:02d}"
+            else:
+                season_prefix = f"E{nummer:02d}"
 
         # #Nummer extrahieren (z.B. #1, #05)
         number_suffix = ""
@@ -424,11 +459,27 @@ class CustomSpecialGenerator:
                 timestamp = "00:00:05"
                 print(f"   ⚠️  Dauer nicht ermittelbar, verwende Fallback: {timestamp}")
 
-        # ffmpeg Kommando
+        # Ermittle Video-Dimensionen für 16:9 Berechnung
+        dimensions = self.get_video_dimensions(video_path)
+        if dimensions:
+            orig_width, orig_height = dimensions
+            # Berechne 16:9 Ziel-Dimensionen basierend auf Video-Höhe
+            target_width = int(orig_height * 16 / 9)
+            # Runde auf gerade Zahl für FFmpeg-Kompatibilität
+            if target_width % 2 != 0:
+                target_width += 1
+            print(f"   Video-Dimensionen: {orig_width}x{orig_height} → Thumbnail: {target_width}x{orig_height} (16:9)")
+        else:
+            # Fallback auf Full HD wenn Dimensionen nicht ermittelt werden können
+            target_width, orig_height = 1920, 1080
+            print(f"   ⚠️  Dimensionen nicht ermittelbar, verwende Fallback: {target_width}x{orig_height}")
+
+        # ffmpeg Kommando mit Scale-Filter für 16:9
         cmd = [
             'ffmpeg',
             '-ss', timestamp,
             '-i', str(video_path),
+            '-vf', f'scale={target_width}:{orig_height}',
             '-vframes', '1',
             '-q:v', '2',
             '-y',  # Überschreiben ohne Nachfrage
